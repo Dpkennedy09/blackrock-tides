@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
+  <meta charset="UTF-8" />
   <title>Blackrock Galway – Tides, Weather & Sea Temp</title>
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <style>
@@ -46,8 +46,13 @@
       cursor: pointer;
       margin-top: 0.5rem;
     }
-    ul { list-style: none; padding: 0; }
-    li { margin-bottom: 0.5rem; }
+    ul {
+      list-style: none;
+      padding: 0;
+    }
+    li {
+      margin-bottom: 0.5rem;
+    }
     .tabs {
       display: flex;
       margin-bottom: 0.5rem;
@@ -107,14 +112,18 @@
 <script>
   const lat = 53.267;
   const lon = -9.083;
-  const stormGlassKey = 'a78cf856-67aa-11f0-976d-0242ac130006-a78cf928-67aa-11f0-976d-0242ac130006';
   const openWeatherKey = '5b7cc4376be79b5231b607350a4b485d';
+  const worldTidesKey = '96b60faa-cefc-41ac-bf56-25327038c031';
+
   let currentUnit = 'C';
   let selectedDay = 'yesterday';
   let chartInstance = null;
   let tempData = {};
 
-  function toF(c) { return (c * 9/5 + 32).toFixed(1); }
+  function toF(c) {
+    return (c * 9 / 5 + 32).toFixed(1);
+  }
+
   function convertTemps(temps, unit) {
     return unit === 'F' ? temps.map(toF) : temps.map(t => +t.toFixed(1));
   }
@@ -127,8 +136,9 @@
 
   function switchDay(day) {
     selectedDay = day;
-    document.querySelectorAll('.tab').forEach(tab => tab.classList.remove('active'));
-    document.querySelector(`.tab:contains("${day.charAt(0).toUpperCase() + day.slice(1)}")`)?.classList.add('active');
+    document.querySelectorAll('.tab').forEach(tab => {
+      tab.classList.toggle('active', tab.textContent.toLowerCase() === day);
+    });
     renderChart();
   }
 
@@ -138,29 +148,37 @@
       today: 0,
       tomorrow: 1
     };
+
     const promises = Object.entries(days).map(async ([label, offset]) => {
       const date = new Date();
       date.setDate(date.getDate() + offset);
       const dateStr = date.toISOString().split('T')[0];
-      const start = `${dateStr}T00:00:00Z`;
-      const end = `${dateStr}T23:59:59Z`;
-      const res = await fetch(`https://api.stormglass.io/v2/weather/point?lat=${lat}&lng=${lon}&params=waterTemperature&start=${start}&end=${end}`, {
-        headers: { Authorization: stormGlassKey }
-      });
+
+      const res = await fetch(`https://marine-api.open-meteo.com/v1/marine?latitude=${lat}&longitude=${lon}&hourly=sea_surface_temperature&start_date=${dateStr}&end_date=${dateStr}&timezone=auto`);
       const json = await res.json();
-      tempData[label] = {
-        temps: json.hours.map(h => h.waterTemperature?.noaa).filter(Boolean),
-        labels: json.hours.map(h => new Date(h.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }))
-      };
+
+      const temps = json.hourly.sea_surface_temperature
+        .map(t => t)
+        .filter(t => t !== null && !isNaN(t));
+      const labels = json.hourly.time.map(t => new Date(t).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }));
+
+      tempData[label] = { temps, labels };
     });
+
     await Promise.all(promises);
     renderChart();
   }
 
   function renderChart() {
-    const { temps, labels } = tempData[selectedDay];
+    const { temps, labels } = tempData[selectedDay] || { temps: [], labels: [] };
+    if (!temps.length) {
+      document.getElementById('waterSummary').textContent = 'No water temperature data available.';
+      if (chartInstance) chartInstance.destroy();
+      return;
+    }
+
     const converted = convertTemps(temps, currentUnit);
-    const avg = (converted.reduce((a, b) => a + b, 0) / converted.length).toFixed(1);
+    const avg = (converted.reduce((a, b) => a + parseFloat(b), 0) / converted.length).toFixed(1);
     const high = Math.max(...converted).toFixed(1);
     const low = Math.min(...converted).toFixed(1);
 
@@ -204,23 +222,46 @@
   }
 
   async function fetchTides() {
-    const today = new Date().toISOString().split('T')[0];
-    const tomorrow = new Date(Date.now() + 86400000).toISOString().split('T')[0];
-    const res = await fetch(`https://api.stormglass.io/v2/tide/extremes/point?lat=${lat}&lng=${lon}&start=${today}&end=${tomorrow}`, {
-      headers: { Authorization: stormGlassKey }
-    });
-    const data = await res.json();
-    const list = document.getElementById('tideList');
-    list.innerHTML = '';
-    data.data.forEach(entry => {
-      const time = new Date(entry.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-      list.innerHTML += `<li>${entry.type.toUpperCase()} at ${time} – ${entry.height.toFixed(2)} m</li>`;
-    });
+    const tideList = document.getElementById('tideList');
+    tideList.innerHTML = 'Loading tides...';
+
+    try {
+      const date = new Date().toISOString().split('T')[0];
+      const url = `https://www.worldtides.info/api/v3?heights&date=${date}&lat=${lat}&lon=${lon}&key=${worldTidesKey}`;
+      const res = await fetch(url);
+      if (!res.ok) throw new Error(`HTTP error ${res.status}`);
+      const data = await res.json();
+
+      if (!data.heights || data.heights.length === 0) {
+        tideList.innerHTML = '<li>No tide data found for today.</li>';
+        return;
+      }
+
+      const highest = data.heights.reduce((max, cur) => cur.height > max.height ? cur : max, data.heights[0]);
+      const lowest = data.heights.reduce((min, cur) => cur.height < min.height ? cur : min, data.heights[0]);
+
+      function formatTime(dt) {
+        return new Date(dt * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      }
+
+      function formatHeight(h) {
+        return h < 0 ? `−${Math.abs(h).toFixed(2)} m` : `${h.toFixed(2)} m`;
+      }
+
+      tideList.innerHTML = `
+        <li><strong>HIGHEST Tide Time:</strong> ${formatTime(highest.dt)} – Height: ${formatHeight(highest.height)}</li>
+        <li><strong>LOWEST Tide Time:</strong> ${formatTime(lowest.dt)} – Height: ${formatHeight(lowest.height)}</li>
+      `;
+    } catch (err) {
+      console.error('Error fetching tide data:', err);
+      tideList.innerHTML = '<li>Failed to load tide data.</li>';
+    }
   }
 
   async function fetchWeather() {
     const res = await fetch(`https://api.openweathermap.org/data/2.5/weather?lat=${lat}&lon=${lon}&units=metric&appid=${openWeatherKey}`);
     const data = await res.json();
+
     const temp = data.main.temp.toFixed(1);
     const feels = data.main.feels_like.toFixed(1);
     const wind = data.wind.speed;
@@ -230,6 +271,7 @@
       <p>🌡️ Temp: ${temp}°C (Feels like: ${feels}°C)</p>
       <p>💨 Wind: ${wind} m/s</p>
     `;
+
     const sunrise = new Date(data.sys.sunrise * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     const sunset = new Date(data.sys.sunset * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     document.getElementById('sunInfo').innerHTML = `
@@ -238,6 +280,7 @@
     `;
   }
 
+  // Run all fetches
   fetchTides();
   fetchWeather();
   fetchWaterTemp();
