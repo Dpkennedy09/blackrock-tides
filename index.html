@@ -113,7 +113,7 @@
   const lat = 53.267;
   const lon = -9.083;
   const openWeatherKey = '5b7cc4376be79b5231b607350a4b485d';
-  const worldTidesKey = '96b60faa-cefc-41ac-bf56-25327038c031';
+  //const worldTidesKey = '96b60faa-cefc-41ac-bf56-25327038c031';
 
   let currentUnit = 'C';
   let selectedDay = 'yesterday';
@@ -227,7 +227,7 @@
 
     try {
       const date = new Date().toISOString().split('T')[0];
-      const url = `https://www.worldtides.info/api/v3?heights&date=${date}&lat=${lat}&lon=${lon}&key=${worldTidesKey}`;
+      //const url = `https://www.worldtides.info/api/v3?heights&date=${date}&lat=${lat}&lon=${lon}&key=${worldTidesKey}`;
       const res = await fetch(url);
       if (!res.ok) throw new Error(`HTTP error ${res.status}`);
       const data = await res.json();
@@ -288,3 +288,4 @@
 
 </body>
 </html>
+
